@@ -10,7 +10,7 @@ spark = SparkSession \
 
 df = spark.read \
     .format("jdbc") \
-    .option("url", "jdbc:postgresql://localhost:5432/spotify") \
+    .option("url", "jdbc:postgresql://container_banco:5432/spotify") \
     .option("dbtable", "spotify") \
     .option("user", "adm") \
     .option("password", "123") \
