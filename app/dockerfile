@@ -19,7 +19,7 @@ ENV SPARK_CLASSPATH=/opt/drivers/postgresql-42.2.5.jar
 ENV CLASSPATH=$CLASSPATH:/opt/drivers/postgresql-42.2.5.jar
 
 
-COPY teste_conexao.py /app
+COPY app/teste_conexao.py /app
 
 
 CMD ["python", "teste_conexao.py"]

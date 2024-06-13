@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+
+  db:
+    build:
+      context: .
+      dockerfile: ./banco/Dockerfile
+    container_name: container_banco
+    environment:
+      POSTGRES_DB: spotify
+      POSTGRES_USER: adm
+      POSTGRES_PASSWORD: 123
+    networks:
+      - app_network
+
+  app:
+    build:
+      context: .
+      dockerfile: ./app/Dockerfile
+    container_name: container_spark
+    networks:
+      - app_network
+    depends_on:
+      - db
+
+networks:
+  app_network:
+    driver: bridge
