@@ -1,9 +1,0 @@
-# dockerfile pro banco de dados
-FROM postgres:latest
-
-ENV POSTGRES_DB=spotify
-ENV POSTGRES_USER=adm
-ENV POSTGRES_PASSWORD=123
-
-COPY script.sql /docker-entrypoint-initdb.d/
-COPY dataset.csv /dados/
