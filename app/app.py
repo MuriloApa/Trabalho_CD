@@ -1,87 +1,141 @@
 from flask import Flask, request, jsonify
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, month, desc, sum, year
+from pyspark.sql.functions import (
+    col,
+    month,
+    desc,
+    avg,
+    year,
+    trim,
+    split,
+    explode,
+    sum,
+)
+import logging
 
 app = Flask(__name__)
 
-spark = SparkSession \
-    .builder \
-    .appName("Python Spark SQL data source example") \
-    .config("spark.jars", "/opt/drivers/postgresql-42.2.5.jar") \
+spark = (
+    SparkSession.builder.appName("Python Spark SQL data source example")
+    .config("spark.jars", "/opt/drivers/postgresql-42.2.5.jar")
     .getOrCreate()
+)
 
-df = spark.read \
-    .format("jdbc") \
-    .option("url", "jdbc:postgresql://container_banco:5432/spotify") \
-    .option("dbtable", "spotify") \
-    .option("user", "adm") \
-    .option("password", "123") \
-    .option("driver", "org.postgresql.Driver") \
+df = (
+    spark.read.format("jdbc")
+    .option("url", "jdbc:postgresql://container_banco:5432/spotify")
+    .option("dbtable", "spotify")
+    .option("user", "adm")
+    .option("password", "123")
+    .option("driver", "org.postgresql.Driver")
     .load()
+)
 
-# Endpoint para 'month'
-@app.route('/month', methods=['GET'])
-def get_month():
-    target_month = int(request.args.get('month'))
 
-    if target_month is None:
-        return jsonify({"error": "No month provided"}), 400
-    
-    # Filtrar pelo mês especificado
-    df_filtered = df.filter(month(col("dates")) == target_month)
-    
-    # Classificar os artistas pelo número de ouvintes mensais em ordem decrescente
-    df_sorted = df_filtered.orderBy(desc("monthly_listeners"))
-    
-    # Selecionar os 10 artistas mais ouvidos
-    top_10_artists = df_sorted.select("names", "dates", "monthly_listeners").distinct().limit(10)
+@app.route("/top10-artists", methods=["GET"])
+def top_ten_artists():
+    if request.args.get("month"):
+        try:
+            target_month = int(request.args.get("month"))
+        except (TypeError, ValueError):
+            return jsonify({"error": "Invalid or no month provided"}), 400
+    else:
+        target_month = None
 
-    top_10_artists = top_10_artists.toPandas().to_dict(orient="records")
+    if request.args.get("year"):
+        try:
+            target_year = int(request.args.get("year"))
+        except (TypeError, ValueError):
+            return jsonify({"error": "Invalid or no year provided"}), 400
+    else:
+        target_year = None
 
-    return jsonify(top_10_artists)
+    try:
+        df_filtered = df
 
-        
-    
-# Endpoint para 'year'
-@app.route('/year', methods=['GET'])
-def get_year():
-    target_year = request.args.get('year')
+        if target_year is not None:
+            df_filtered = df_filtered.filter(year(col("dates")) == target_year)
 
-    if target_year is None:
-        return jsonify({"error": "No year provided"}), 400
-    
-    df_filtred = df.filter(year(col("dates")) == target_year)
+        if target_month is not None:
+            df_filtered = df_filtered.filter(month(col("dates")) == target_month)
 
-    df_grouped = df_filtred.groupBy("names").agg(sum("monthly_listeners").alias("total_listeners"))
-    
-    # Classificar os artistas pelo total de ouvintes mensais em ordem decrescente
-    df_sorted = df_grouped.orderBy(desc("total_listeners"))
-    
-    # Selecionar os 10 artistas mais ouvidos
-    top_10_artists = df_sorted.limit(10)
-    top_10_artists = top_10_artists.toPandas().to_dict(orient="records")
-    
-    return jsonify(top_10_artists)
-    
-        
-    
-# Endpoint para 'genre'
-@app.route('/genre', methods=['GET'])
-def get_genre():
-    genre = request.args.get('genre')
+        df_grouped = df_filtered.groupBy("ids").agg(
+            avg("monthly_listeners").alias("avg_monthly_listeners")
+        )
 
-    if genre is None:
-        return jsonify({"error": "No genre provided"}), 400
+        # Média de ouvintes mensais
+        df_sorted = df_grouped.orderBy(desc("avg_monthly_listeners"))
 
-    df_filtred = df.filter(col("genres").contains(genre))
+        # Selecionar os 10 artistas mais ouvidos
+        top_10_artists = df_sorted.limit(10)
+        top_10_artists = top_10_artists.join(
+            df_filtered.select("ids", "names", "genres").distinct(), on="ids"
+        )
+        top_10_artists = top_10_artists.toPandas().to_dict(orient="records")
 
-    df_sorted = df_filtred.orderBy("names")
+        return jsonify(top_10_artists)
+    except Exception:
+        logging.error()
+        return jsonify({"error": "Internal error"}), 500
 
-    df_sorted = df_sorted.toPandas().to_dict(orient="records")
 
-    return jsonify(df_sorted)
+@app.route("/top10-genres", methods=["GET"])
+def top_ten_genres():
+    try:
+        if request.args.get("month"):
+            try:
+                target_month = int(request.args.get("month"))
+            except (TypeError, ValueError):
+                return jsonify({"error": "Invalid or no month provided"}), 400
+        else:
+            target_month = None
 
-        
+        if request.args.get("year"):
+            try:
+                target_year = int(request.args.get("year"))
+            except (TypeError, ValueError):
+                return jsonify({"error": "Invalid or no year provided"}), 400
+        else:
+            target_year = None
+
+        df_filtered = df
+
+        if target_year:
+            df_filtered = df_filtered.filter(year(col("dates")) == target_year)
+
+        if target_month:
+            df_filtered = df_filtered.filter(month(col("dates")) == target_month)
+
+        # Filtrar o DataFrame
+        df_filtered = df_filtered.filter(
+            (col("genres").isNotNull()) & (trim(col("genres")) != "")
+        )
+
+        # Separar e explodir os gêneros
+        df_split = df_filtered.withColumn("genres", split(col("genres"), ", "))
+        df_exploded = df_split.withColumn("genre", explode(col("genres")))
+
+        # Calcular a média de ouvintes mensais por artista e gênero
+        df_artists_average = df_exploded.groupBy("ids", "genre").agg(
+            avg("monthly_listeners").alias("avg_monthly_listeners")
+        )
+
+        # Somar as médias de ouvintes mensais por gênero
+        df_genre_sum = df_artists_average.groupBy("genre").agg(
+            sum("avg_monthly_listeners").alias("sum_monthly_listeners")
+        )
+
+        # Ordenar os gêneros pela média de ouvintes mensais em ordem decrescente
+        df_sorted = df_genre_sum.orderBy(desc("sum_monthly_listeners"))
+
+        # Selecionar os top 10 gêneros
+        top_10_genres = df_sorted.limit(10)
+        top_10_genres = top_10_genres.toPandas().to_dict(orient="records")
+
+        return jsonify(top_10_genres)
+    except Exception as e:
+        logging.error(e)
+        return jsonify({"error": "Internal error"}), 500
 
 
 if __name__ == "__main__":
