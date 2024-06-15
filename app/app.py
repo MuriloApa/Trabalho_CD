@@ -1,3 +1,4 @@
+from datetime import datetime
 from flask import Flask, request, jsonify
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import (
@@ -10,6 +11,14 @@ from pyspark.sql.functions import (
     split,
     explode,
     sum,
+)
+from pyspark.sql.types import (
+    DateType,
+    IntegerType,
+    StringType,
+    StructField,
+    StructType,
+    DoubleType,
 )
 import logging
 
@@ -29,6 +38,24 @@ df = (
     .option("password", "123")
     .option("driver", "org.postgresql.Driver")
     .load()
+)
+
+schema = StructType(
+    [
+        StructField("dates", DateType(), True),
+        StructField("ids", StringType(), True),
+        StructField("names", StringType(), True),
+        StructField("monthly_listeners", DoubleType(), True),
+        StructField("popularity", IntegerType(), True),
+        StructField("followers", IntegerType(), True),
+        StructField("genres", StringType(), True),
+        StructField("first_release", IntegerType(), True),
+        StructField("last_release", IntegerType(), True),
+        StructField("num_releases", IntegerType(), True),
+        StructField("num_tracks", IntegerType(), True),
+        StructField("playlists_found", StringType(), True),
+        StructField("feat_track_ids", StringType(), True),
+    ]
 )
 
 
@@ -133,6 +160,57 @@ def top_ten_genres():
         top_10_genres = top_10_genres.toPandas().to_dict(orient="records")
 
         return jsonify(top_10_genres)
+    except Exception as e:
+        logging.error(e)
+        return jsonify({"error": "Internal error"}), 500
+
+
+@app.route("/featured-artist", methods=["POST"])
+def write_featured_artist():
+    try:
+        data = request.get_json()
+
+        try:
+            data["dates"] = datetime.strptime(
+                data["dates"], "%Y-%m-%d"
+            )  # Converter para formato de data
+            data["monthly_listeners"] = float(
+                data["monthly_listeners"]
+            )  # Converter para float
+            data["popularity"] = int(data["popularity"])  # Converter para inteiro
+            data["followers"] = int(data["followers"])  # Converter para inteiro
+            data["first_release"] = int(data["first_release"])  # Converter para inteiro
+            data["last_release"] = int(data["last_release"])  # Converter para inteiro
+            data["num_releases"] = int(data["num_releases"])  # Converter para inteiro
+            data["num_tracks"] = int(data["num_tracks"])  # Converter para inteiro
+        except (KeyError, ValueError) as e:
+            return jsonify({"error": "Tipos de dados inválidos no JSON recebido"}), 400
+
+        try:
+            write_df = spark.createDataFrame([data], schema=schema)
+        except ValueError as e:
+            return (
+                jsonify(
+                    {"error": f"Invalid data types, please check the request body: {e}"}
+                ),
+                400,
+            )
+
+        write_df.write.format("jdbc").option(
+            "url", "jdbc:postgresql://container_banco:5432/spotify"
+        ).option("dbtable", "spotify").option("user", "adm").option(
+            "password", "123"
+        ).option(
+            "driver", "org.postgresql.Driver"
+        ).mode(
+            "append"
+        ).save()
+
+        global df
+        df = df.union(write_df)
+
+        return jsonify({"message": "New featured artist succesfully added"}), 201
+
     except Exception as e:
         logging.error(e)
         return jsonify({"error": "Internal error"}), 500
