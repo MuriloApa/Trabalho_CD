@@ -20,8 +20,9 @@ RUN mkdir -p /opt/drivers && \
 ENV SPARK_CLASSPATH=/opt/drivers/postgresql-42.2.5.jar
 ENV CLASSPATH=$CLASSPATH:/opt/drivers/postgresql-42.2.5.jar
 
+EXPOSE 5000
 
-COPY app/teste_conexao.py /app
+COPY app/app.py /app
 
 
-CMD ["python", "teste_conexao.py"]
+CMD ["python", "app.py"]

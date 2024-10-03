@@ -2,7 +2,7 @@ create table spotify(
     dates DATE,
     ids TEXT,
     names TEXT,
-    monthly_listeners FLOAT,
+    monthly_listeners DOUBLE PRECISION,
     popularity INT,
     followers INT,
     genres TEXT,
